@@ -14,6 +14,8 @@ int main(void) {
     log_init("maidux.log");
     hist_init(100);
 
+    puts("Welcome to maidux!");
+
     char line[1024];
     while (1) {
         prompt_print();
@@ -38,5 +40,6 @@ int main(void) {
         }
         free_pipeline(&pl);
     }
+    puts("Bye.");
     return 0;
 }

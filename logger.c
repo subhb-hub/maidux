@@ -7,6 +7,7 @@
 #include "logger.h"
 
 static FILE* log_fp = NULL;
+static char log_file_path[4096];
 
 static void log_vwrite(const char* prefix, const char* fmt, va_list ap) {
     if (!log_fp) return;
@@ -23,7 +24,11 @@ static void log_vwrite(const char* prefix, const char* fmt, va_list ap) {
 
 void log_init(const char* log_path) {
     if (log_fp) return;
-    log_fp = fopen(log_path, "a");
+    if (log_path) {
+        strncpy(log_file_path, log_path, sizeof(log_file_path) - 1);
+        log_file_path[sizeof(log_file_path) - 1] = '\0';
+    }
+    log_fp = fopen(log_file_path, "a");
 }
 
 void log_info(const char* fmt, ...) {
@@ -36,4 +41,8 @@ void log_info(const char* fmt, ...) {
 void log_error_errno(const char* where) {
     if (!where) where = "";
     log_info("[ERROR] %s: %s", where, strerror(errno));
+}
+
+const char* log_path(void) {
+    return log_file_path[0] ? log_file_path : NULL;
 }

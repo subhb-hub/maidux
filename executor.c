@@ -75,10 +75,6 @@ int exec_pipeline(Pipeline* pl) {
 
     pid_t pids[MAX_STAGE];
     for (int i = 0; i < pl->n; ++i) {
-        if (builtin_dispatch(&pl->stages[i]) != 0) {
-            errno = ENOTSUP;
-            return -1;
-        }
         pids[i] = fork();
         if (pids[i] < 0) return -1;
         if (pids[i] == 0) {
@@ -95,6 +91,10 @@ int exec_pipeline(Pipeline* pl) {
             if (apply_redirs(&pl->stages[i]) != 0) {
                 log_error_errno("redirection");
                 _exit(1);
+            }
+            int bi = builtin_dispatch_child(&pl->stages[i], 0);
+            if (bi != 0) {
+                _exit(bi > 0 ? 0 : 1);
             }
             char pathbuf[1024];
             if (resolve_in_path(pl->stages[i].argv[0], pathbuf, sizeof(pathbuf)) != 0) {

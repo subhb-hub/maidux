@@ -4,5 +4,6 @@
 #include "parser.h"
 
 int builtin_dispatch(Stage* st);
+int builtin_dispatch_child(Stage* st, int allow_cd);
 
 #endif
