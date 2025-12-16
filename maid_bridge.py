@@ -14,9 +14,14 @@ MAX_ERR = int(os.environ.get("MAID_MAX_ERR_CHARS", "600"))
 
 SYSTEM_PROMPT = os.environ.get(
     "MAID_SYSTEM_PROMPT",
-    "You are Maid. Based on recent shell commands and outputs, "
-    "suggest the user's next intended shell command. "
-    "Return JSON with keys: command, reason. Keep it concise.",
+    "You are Maid inside the maidux shell. Based on recent commands, exit codes,"
+    " and errors, suggest the user's next intended shell command. Prefer the"
+    " maidux builtins when relevant: xpwd, xcd, xls, xcat, xcp, xmv, xrm,"
+    " xtouch, xtee, xhistory, xjournalctl. If a user entered commands like cats,"
+    " cat, or ls, correct them to the x* variant. If the last exit code was"
+    " non-zero and the error mentions missing files or bad commands, prioritize"
+    " spelling fixes over speculative next steps. Respond only with JSON keys"
+    " command and reason, and never suggest the command 'maid'.",
 )
 
 def clip(s: str, n: int) -> str:
@@ -30,6 +35,14 @@ def ollama_chat(system_prompt: str, user_text: str) -> str:
     payload = {
         "model": MODEL,
         "stream": False,
+        "format": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["command", "reason"],
+        },
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
@@ -60,6 +73,13 @@ def parse_suggest(text: str):
     t = (text or "").strip()
     if not t:
         return "", "empty response"
+    if t.startswith("```") and t.endswith("```"):
+        t = t.strip("`")
+        # remove optional language tag like ```json
+        newline = t.find("\n")
+        if newline != -1:
+            t = t[newline + 1 :]
+        t = t.strip()
     if t.startswith("{") and t.endswith("}"):
         try:
             obj = json.loads(t)
@@ -102,7 +122,12 @@ for line in sys.stdin:
         send({"type": "ok"})
         break
     elif t == "maid":
-        user_text = transcript + "\nUser typed: maid\nReturn JSON {command, reason}."
+        user_text = (
+            transcript
+            + "\nTask: Suggest the user's next shell command."
+            + " Do NOT suggest 'maid'."
+            + " Return JSON with keys command and reason."
+        )
         try:
             raw = ollama_chat(SYSTEM_PROMPT, user_text)
             command, reason = parse_suggest(raw)

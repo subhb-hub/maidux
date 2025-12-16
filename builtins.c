@@ -156,9 +156,10 @@ static int do_maid(void) {
     extract_json_field(line, "\"command\"", cmd, sizeof(cmd));
     extract_json_field(line, "\"reason\"", reason, sizeof(reason));
 
-    if (cmd[0] || reason[0]) {
-        if (cmd[0]) printf("maid suggests: %s\n", cmd);
-        if (reason[0]) printf("reason: %s\n", reason);
+    if (cmd[0] && reason[0]) {
+        printf("maid suggests: %s    # %s\n", cmd, reason);
+    } else if (cmd[0]) {
+        printf("maid suggests: %s\n", cmd);
     } else {
         printf("%s\n", line);
     }

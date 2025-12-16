@@ -54,7 +54,17 @@ int main(void) {
                 log_error("exec failed");
             }
         }
-        maid_client_push_turn(&g_maid, line, "", "", exec_status == 0 ? 0 : 1);
+        char errbuf[128] = {0};
+        if (exec_status != 0) {
+            if (errno != 0) {
+                snprintf(errbuf, sizeof(errbuf), "%s", strerror(errno));
+            } else {
+                snprintf(errbuf, sizeof(errbuf), "command failed");
+            }
+        }
+        if (strcmp(line, "maid") != 0) {
+            maid_client_push_turn(&g_maid, line, "", errbuf, exec_status == 0 ? 0 : 1);
+        }
         free_pipeline(&pl);
     }
     puts("Bye.");
