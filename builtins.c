@@ -11,6 +11,7 @@
 #include "builtins.h"
 #include "history.h"
 #include "logger.h"
+#include "maid_client.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -99,6 +100,69 @@ static int remove_recursive(const char* path) {
         return rmdir(path);
     }
     return unlink(path);
+}
+
+static void extract_json_field(const char* json, const char* key, char* out, size_t outsz) {
+    if (!json || !key || !out || outsz == 0) return;
+    const char* pos = strstr(json, key);
+    if (!pos) return;
+    pos = strchr(pos, ':');
+    if (!pos) return;
+    pos++;
+    while (*pos == ' ' || *pos == '\t') pos++;
+    if (*pos != '"') return;
+    pos++;
+    size_t j = 0;
+    while (*pos && *pos != '"' && j + 1 < outsz) {
+        if (*pos == '\\' && pos[1]) {
+            pos++;
+            char c = *pos;
+            if (c == 'n') {
+                out[j++] = '\n';
+            } else if (c == 't') {
+                out[j++] = '\t';
+            } else {
+                out[j++] = c;
+            }
+            pos++;
+            continue;
+        }
+        out[j++] = *pos++;
+    }
+    out[j] = '\0';
+}
+
+static int do_maid(void) {
+    if (!maid_client_is_running(&g_maid)) {
+        fprintf(stderr, "maid helper is not running\n");
+        return -1;
+    }
+    char line[2048];
+    if (maid_client_request_suggest(&g_maid, line, sizeof(line)) != 0) {
+        return -1;
+    }
+    size_t len = strlen(line);
+    if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+
+    if (strstr(line, "\"type\":\"error\"")) {
+        char msg[512] = {0};
+        extract_json_field(line, "\"message\"", msg, sizeof(msg));
+        fprintf(stderr, "maid error: %s\n", msg[0] ? msg : "unknown");
+        return -1;
+    }
+
+    char cmd[512] = {0};
+    char reason[1024] = {0};
+    extract_json_field(line, "\"command\"", cmd, sizeof(cmd));
+    extract_json_field(line, "\"reason\"", reason, sizeof(reason));
+
+    if (cmd[0] || reason[0]) {
+        if (cmd[0]) printf("maid suggests: %s\n", cmd);
+        if (reason[0]) printf("reason: %s\n", reason);
+    } else {
+        printf("%s\n", line);
+    }
+    return 1;
 }
 
 static int move_path(const char* src, const char* dst) {
@@ -322,6 +386,9 @@ static int handle_builtin(Stage* st, int allow_cd) {
         return do_tee(st) == 0 ? 1 : -1;
     } else if (strcmp(cmd, "xjournalctl") == 0) {
         return do_journalctl() == 0 ? 1 : -1;
+    } else if (strcmp(cmd, "maid") == 0) {
+        if (st->argc != 1) { errno = EINVAL; return -1; }
+        return do_maid();
     }
     return 0;
 }
@@ -340,5 +407,6 @@ int builtin_is(const Stage* st) {
     return strcmp(cmd, "xpwd") == 0 || strcmp(cmd, "xcd") == 0 || strcmp(cmd, "xecho") == 0 ||
            strcmp(cmd, "xhistory") == 0 || strcmp(cmd, "xls") == 0 || strcmp(cmd, "xtouch") == 0 ||
            strcmp(cmd, "xcat") == 0 || strcmp(cmd, "xcp") == 0 || strcmp(cmd, "xrm") == 0 ||
-           strcmp(cmd, "xmv") == 0 || strcmp(cmd, "xtee") == 0 || strcmp(cmd, "xjournalctl") == 0;
+           strcmp(cmd, "xmv") == 0 || strcmp(cmd, "xtee") == 0 || strcmp(cmd, "xjournalctl") == 0 ||
+           strcmp(cmd, "maid") == 0;
 }
