@@ -333,3 +333,12 @@ int builtin_dispatch(Stage* st) {
 int builtin_dispatch_child(Stage* st, int allow_cd) {
     return handle_builtin(st, allow_cd);
 }
+
+int builtin_is(const Stage* st) {
+    if (!st || st->argc == 0) return 0;
+    const char* cmd = st->argv[0];
+    return strcmp(cmd, "xpwd") == 0 || strcmp(cmd, "xcd") == 0 || strcmp(cmd, "xecho") == 0 ||
+           strcmp(cmd, "xhistory") == 0 || strcmp(cmd, "xls") == 0 || strcmp(cmd, "xtouch") == 0 ||
+           strcmp(cmd, "xcat") == 0 || strcmp(cmd, "xcp") == 0 || strcmp(cmd, "xrm") == 0 ||
+           strcmp(cmd, "xmv") == 0 || strcmp(cmd, "xtee") == 0 || strcmp(cmd, "xjournalctl") == 0;
+}

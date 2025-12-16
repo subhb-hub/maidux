@@ -5,5 +5,6 @@
 
 int builtin_dispatch(Stage* st);
 int builtin_dispatch_child(Stage* st, int allow_cd);
+int builtin_is(const Stage* st);
 
 #endif

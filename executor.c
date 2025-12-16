@@ -35,9 +35,39 @@ static int apply_redirs(Stage* st) {
 }
 
 int exec_stage(Stage* st) {
-    int bi = builtin_dispatch(st);
-    if (bi != 0) {
-        return bi > 0 ? 0 : -1;
+    if (builtin_is(st)) {
+        int saved_stdout = -1, saved_stderr = -1;
+        int redirected = 0;
+        int restore_failed = 0;
+        if (st->out_file || st->err_file) {
+            saved_stdout = dup(STDOUT_FILENO);
+            saved_stderr = dup(STDERR_FILENO);
+            if (saved_stdout < 0 || saved_stderr < 0) {
+                if (saved_stdout >= 0) close(saved_stdout);
+                if (saved_stderr >= 0) close(saved_stderr);
+                return -1;
+            }
+            if (apply_redirs(st) != 0) {
+                dup2(saved_stdout, STDOUT_FILENO);
+                dup2(saved_stderr, STDERR_FILENO);
+                close(saved_stdout);
+                close(saved_stderr);
+                return -1;
+            }
+            redirected = 1;
+        }
+
+        int bi = builtin_dispatch(st);
+        int ret = bi != 0 ? (bi > 0 ? 0 : -1) : 0;
+
+        if (redirected) {
+            if (dup2(saved_stdout, STDOUT_FILENO) < 0) restore_failed = 1;
+            if (dup2(saved_stderr, STDERR_FILENO) < 0) restore_failed = 1;
+            close(saved_stdout);
+            close(saved_stderr);
+        }
+
+        return restore_failed ? -1 : ret;
     }
 
     char pathbuf[1024];
