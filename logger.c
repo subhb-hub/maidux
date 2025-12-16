@@ -38,9 +38,16 @@ void log_info(const char* fmt, ...) {
     va_end(ap);
 }
 
+void log_error(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    log_vwrite("[ERROR] ", fmt, ap);
+    va_end(ap);
+}
+
 void log_error_errno(const char* where) {
     if (!where) where = "";
-    log_info("[ERROR] %s: %s", where, strerror(errno));
+    log_error("%s: %s", where, strerror(errno));
 }
 
 const char* log_path(void) {

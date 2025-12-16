@@ -34,9 +34,15 @@ int main(void) {
             log_error_errno("parse");
             continue;
         }
+        errno = 0;
         if (exec_pipeline(&pl) != 0) {
-            log_error_errno("exec");
-            perror("maidux");
+            if (errno != 0) {
+                perror("maidux");
+                log_error_errno("exec");
+            } else {
+                fprintf(stderr, "maidux: command failed\n");
+                log_error("exec failed");
+            }
         }
         free_pipeline(&pl);
     }

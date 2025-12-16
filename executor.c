@@ -80,10 +80,12 @@ int exec_stage(Stage* st) {
     if (pid < 0) return -1;
     if (pid == 0) {
         if (apply_redirs(st) != 0) {
+            perror("maidux");
             log_error_errno("redirection");
             _exit(1);
         }
         execv(pathbuf, st->argv);
+        perror("maidux");
         log_error_errno("execv");
         _exit(1);
     }
@@ -119,6 +121,7 @@ int exec_pipeline(Pipeline* pl) {
                 close(pipes[j][1]);
             }
             if (apply_redirs(&pl->stages[i]) != 0) {
+                perror("maidux");
                 log_error_errno("redirection");
                 _exit(1);
             }
@@ -128,10 +131,12 @@ int exec_pipeline(Pipeline* pl) {
             }
             char pathbuf[1024];
             if (resolve_in_path(pl->stages[i].argv[0], pathbuf, sizeof(pathbuf)) != 0) {
+                perror("maidux");
                 log_error_errno("resolve");
                 _exit(1);
             }
             execv(pathbuf, pl->stages[i].argv);
+            perror("maidux");
             log_error_errno("execv");
             _exit(1);
         }
@@ -145,7 +150,13 @@ int exec_pipeline(Pipeline* pl) {
     int status = 0;
     for (int i = 0; i < pl->n; ++i) {
         int st;
-        if (waitpid(pids[i], &st, 0) < 0) status = -1;
+        if (waitpid(pids[i], &st, 0) < 0) {
+            status = -1;
+            continue;
+        }
+        if ((WIFEXITED(st) && WEXITSTATUS(st) != 0) || WIFSIGNALED(st)) {
+            status = -1;
+        }
     }
     return status;
 }
