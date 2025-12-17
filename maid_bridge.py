@@ -7,7 +7,7 @@ import sys
 import urllib.request
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-MODEL = os.environ.get("MAID_MODEL", "llama3.2:3b")
+MODEL = os.environ.get("MAID_MODEL", "gemma3:4b")
 MAX_CTX = int(os.environ.get("MAID_MAX_CHARS", "8000"))
 MAX_OUT = int(os.environ.get("MAID_MAX_OUT_CHARS", "1200"))
 MAX_ERR = int(os.environ.get("MAID_MAX_ERR_CHARS", "600"))
@@ -50,7 +50,8 @@ def ollama_chat(system_prompt: str, user_text: str) -> str:
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=20) as resp:
         obj = json.loads(resp.read().decode("utf-8", errors="replace"))
     return obj.get("message", {}).get("content", "")
 
