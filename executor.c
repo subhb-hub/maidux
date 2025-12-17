@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -32,6 +34,54 @@ static int apply_redirs(Stage* st) {
         close(fd);
     }
     return 0;
+}
+
+static void append_limited(char** buf, size_t* len, size_t* cap, const char* data, size_t n, size_t max_keep) {
+    if (!buf || !len || !cap || !data || n == 0 || max_keep == 0) return;
+    size_t keep = n;
+    if (*len + keep > max_keep) {
+        size_t overflow = *len + keep - max_keep;
+        if (overflow >= *len) {
+            *len = 0;
+        } else {
+            memmove(*buf, *buf + overflow, *len - overflow);
+            *len -= overflow;
+        }
+    }
+    if (*len + keep + 1 > *cap) {
+        size_t new_cap = (*cap ? *cap : 256);
+        while (new_cap < *len + keep + 1) new_cap *= 2;
+        char* nb = realloc(*buf, new_cap);
+        if (!nb) return;
+        *buf = nb;
+        *cap = new_cap;
+    }
+    memcpy(*buf + *len, data, keep);
+    *len += keep;
+    (*buf)[*len] = '\0';
+}
+
+static void forward_and_collect(int fd, int out_fd, char** buf, size_t* len, size_t* cap, size_t max_keep, int* open) {
+    char tmp[512];
+    ssize_t r = read(fd, tmp, sizeof(tmp));
+    if (r > 0) {
+        if (out_fd >= 0) {
+            ssize_t off = 0;
+            while (off < r) {
+                ssize_t w = write(out_fd, tmp + off, (size_t)(r - off));
+                if (w < 0) {
+                    if (errno == EINTR) continue;
+                    break;
+                }
+                off += w;
+            }
+        }
+        append_limited(buf, len, cap, tmp, (size_t)r, max_keep);
+    } else if (r == 0) {
+        *open = 0;
+    } else if (r < 0 && errno != EINTR) {
+        *open = 0;
+    }
 }
 
 int exec_stage(Stage* st) {
@@ -158,5 +208,153 @@ int exec_pipeline(Pipeline* pl) {
             status = -1;
         }
     }
+    return status;
+}
+
+int exec_pipeline_with_capture(Pipeline* pl, char** out_buf, char** err_buf) {
+    if (out_buf) *out_buf = NULL;
+    if (err_buf) *err_buf = NULL;
+    if (!pl || pl->n == 0) return -1;
+
+    const size_t MAX_KEEP = 8192;
+    int saved_stdout = dup(STDOUT_FILENO);
+    int saved_stderr = dup(STDERR_FILENO);
+    if (saved_stdout < 0 || saved_stderr < 0) {
+        if (saved_stdout >= 0) close(saved_stdout);
+        if (saved_stderr >= 0) close(saved_stderr);
+        return -1;
+    }
+
+    int out_pipe[2] = {-1, -1};
+    int err_pipe[2] = {-1, -1};
+    if (pipe(out_pipe) < 0 || pipe(err_pipe) < 0) {
+        close(saved_stdout);
+        close(saved_stderr);
+        if (out_pipe[0] >= 0) close(out_pipe[0]);
+        if (out_pipe[1] >= 0) close(out_pipe[1]);
+        if (err_pipe[0] >= 0) close(err_pipe[0]);
+        if (err_pipe[1] >= 0) close(err_pipe[1]);
+        return -1;
+    }
+
+    if (dup2(out_pipe[1], STDOUT_FILENO) < 0 || dup2(err_pipe[1], STDERR_FILENO) < 0) {
+        close(saved_stdout);
+        close(saved_stderr);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        return -1;
+    }
+
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+
+    int status = 0;
+    pid_t child_pid = -1;
+    int child_done = 0;
+    int out_open = 1, err_open = 1;
+    char* out_data = NULL;
+    char* err_data = NULL;
+    size_t out_len = 0, out_cap = 0;
+    size_t err_len = 0, err_cap = 0;
+    if (pl->n == 1 && builtin_is(&pl->stages[0])) {
+        status = exec_stage(&pl->stages[0]);
+        fflush(NULL);
+        dup2(saved_stdout, STDOUT_FILENO);
+        dup2(saved_stderr, STDERR_FILENO);
+    } else if (pl->n == 1) {
+        char pathbuf[1024];
+        if (resolve_in_path(pl->stages[0].argv[0], pathbuf, sizeof(pathbuf)) != 0) {
+            errno = ENOENT;
+            status = -1;
+        } else {
+            child_pid = fork();
+            if (child_pid == 0) {
+                if (apply_redirs(&pl->stages[0]) != 0) {
+                    perror("maidux");
+                    log_error_errno("redirection");
+                    _exit(1);
+                }
+                execv(pathbuf, pl->stages[0].argv);
+                perror("maidux");
+                log_error_errno("execv");
+                _exit(1);
+            } else if (child_pid < 0) {
+                status = -1;
+            }
+        }
+    } else {
+        status = exec_pipeline(pl);
+        fflush(NULL);
+        dup2(saved_stdout, STDOUT_FILENO);
+        dup2(saved_stderr, STDERR_FILENO);
+    }
+
+    while (out_open || err_open || (!child_done && child_pid > 0)) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        int maxfd = -1;
+        if (out_open) {
+            FD_SET(out_pipe[0], &rfds);
+            if (out_pipe[0] > maxfd) maxfd = out_pipe[0];
+        }
+        if (err_open) {
+            FD_SET(err_pipe[0], &rfds);
+            if (err_pipe[0] > maxfd) maxfd = err_pipe[0];
+        }
+        int r = select(maxfd + 1, &rfds, NULL, NULL, child_pid > 0 ? &(struct timeval){.tv_sec = 0, .tv_usec = 100000} : NULL);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+        } else if (r > 0) {
+            if (out_open && FD_ISSET(out_pipe[0], &rfds)) {
+                forward_and_collect(out_pipe[0], saved_stdout, out_buf ? &out_data : NULL, &out_len, &out_cap, MAX_KEEP, &out_open);
+            }
+            if (err_open && FD_ISSET(err_pipe[0], &rfds)) {
+                forward_and_collect(err_pipe[0], saved_stderr, err_buf ? &err_data : NULL, &err_len, &err_cap, MAX_KEEP, &err_open);
+            }
+        }
+
+        if (child_pid > 0 && !child_done) {
+            int st;
+            pid_t w = waitpid(child_pid, &st, WNOHANG);
+            if (w == child_pid) {
+                child_done = 1;
+                if ((WIFEXITED(st) && WEXITSTATUS(st) != 0) || WIFSIGNALED(st)) {
+                    status = -1;
+                }
+            }
+        } else if (child_pid < 0) {
+            child_done = 1;
+        } else {
+            child_done = 1;
+        }
+
+        if (child_pid > 0 && child_done && !out_open && !err_open) break;
+    }
+
+    if (child_pid > 0 && !child_done) {
+        int st;
+        if (waitpid(child_pid, &st, 0) == child_pid) {
+            if ((WIFEXITED(st) && WEXITSTATUS(st) != 0) || WIFSIGNALED(st)) {
+                status = -1;
+            }
+        } else {
+            status = -1;
+        }
+    }
+
+    dup2(saved_stdout, STDOUT_FILENO);
+    dup2(saved_stderr, STDERR_FILENO);
+    close(saved_stdout);
+    close(saved_stderr);
+    close(out_pipe[0]);
+    close(err_pipe[0]);
+
+    if (out_buf) *out_buf = out_data;
+    else free(out_data);
+    if (err_buf) *err_buf = err_data;
+    else free(err_data);
+
     return status;
 }
