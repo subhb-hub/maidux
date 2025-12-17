@@ -44,7 +44,9 @@ int main(void) {
             continue;
         }
         errno = 0;
-        int exec_status = exec_pipeline(&pl);
+        char* cap_out = NULL;
+        char* cap_err = NULL;
+        int exec_status = exec_pipeline_with_capture(&pl, &cap_out, &cap_err);
         if (exec_status != 0) {
             if (errno != 0) {
                 perror("maidux");
@@ -63,9 +65,11 @@ int main(void) {
             }
         }
         if (strcmp(line, "maid") != 0) {
-            maid_client_push_turn(&g_maid, line, "", errbuf, exec_status == 0 ? 0 : 1);
+            maid_client_push_turn(&g_maid, line, cap_out ? cap_out : "", cap_err ? cap_err : errbuf, exec_status == 0 ? 0 : 1);
         }
         free_pipeline(&pl);
+        free(cap_out);
+        free(cap_err);
     }
     puts("Bye.");
     maid_client_stop(&g_maid);
