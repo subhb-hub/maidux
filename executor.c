@@ -259,10 +259,14 @@ int exec_pipeline_with_capture(Pipeline* pl, char** out_buf, char** err_buf) {
     size_t out_len = 0, out_cap = 0;
     size_t err_len = 0, err_cap = 0;
     if (pl->n == 1 && builtin_is(&pl->stages[0])) {
-        status = exec_stage(&pl->stages[0]);
-        fflush(NULL);
-        dup2(saved_stdout, STDOUT_FILENO);
-        dup2(saved_stderr, STDERR_FILENO);
+        child_pid = fork();
+        if (child_pid == 0) {
+            int st = exec_stage(&pl->stages[0]);
+            fflush(NULL);
+            _exit(st == 0 ? 0 : 1);
+        } else if (child_pid < 0) {
+            status = -1;
+        }
     } else if (pl->n == 1) {
         char pathbuf[1024];
         if (resolve_in_path(pl->stages[0].argv[0], pathbuf, sizeof(pathbuf)) != 0) {
@@ -285,10 +289,14 @@ int exec_pipeline_with_capture(Pipeline* pl, char** out_buf, char** err_buf) {
             }
         }
     } else {
-        status = exec_pipeline(pl);
-        fflush(NULL);
-        dup2(saved_stdout, STDOUT_FILENO);
-        dup2(saved_stderr, STDERR_FILENO);
+        child_pid = fork();
+        if (child_pid == 0) {
+            int st = exec_pipeline(pl);
+            fflush(NULL);
+            _exit(st == 0 ? 0 : 1);
+        } else if (child_pid < 0) {
+            status = -1;
+        }
     }
 
     while (out_open || err_open || (!child_done && child_pid > 0)) {
