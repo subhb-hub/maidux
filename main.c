@@ -23,7 +23,7 @@ int main(void) {
         log_error("failed to start maid helper");
     }
 
-    puts("Welcome to maidux!");
+    puts("(*•⌄•)===========Welcome to maidux!===========(✿•⌄•)");
 
     char line[1024];
     while (1) {
@@ -71,7 +71,7 @@ int main(void) {
         free(cap_out);
         free(cap_err);
     }
-    puts("Bye.");
+    puts("(*•⌄•)===========Bye.===========(✿•⌄•)");
     maid_client_stop(&g_maid);
     return 0;
 }
