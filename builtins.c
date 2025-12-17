@@ -402,6 +402,11 @@ int builtin_dispatch_child(Stage* st, int allow_cd) {
     return handle_builtin(st, allow_cd);
 }
 
+int builtin_requires_parent(const Stage* st) {
+    if (!st || st->argc == 0) return 0;
+    return strcmp(st->argv[0], "xcd") == 0;
+}
+
 int builtin_is(const Stage* st) {
     if (!st || st->argc == 0) return 0;
     const char* cmd = st->argv[0];
