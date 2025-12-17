@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <limits.h>
+#include <string.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -13,7 +14,9 @@
 
 #include "prompt.h"
 
-void prompt_print(void) {
+size_t prompt_build(char* buf, size_t bufsz) {
+    if (!buf || bufsz == 0) return 0;
+
     static int seeded = 0;
     if (!seeded) {
         srand((unsigned)time(NULL) ^ (unsigned)getpid());
@@ -45,15 +48,25 @@ void prompt_print(void) {
 
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
-        perror("maidux");
-        if (tok[0] != '\0') printf("%s%s%s ", col, tok, rst);
-        fputs("maidux$ ", stdout);
-        fflush(stdout);
-        return;
+        size_t n = 0;
+        if (tok[0] != '\0') {
+            n += (size_t)snprintf(buf + n, bufsz - n, "%s%s%s ", col, tok, rst);
+        }
+        snprintf(buf + n, bufsz - n, "maidux$ ");
+        return strnlen(buf, bufsz);
     }
 
-    // 不换行：token + 空格 + 提示符；token为空就不输出空格
-    if (tok[0] != '\0') printf("%s%s%s ", col, tok, rst);
-    printf("%s$ ", cwd);
+    size_t n = 0;
+    if (tok[0] != '\0') {
+        n += (size_t)snprintf(buf + n, bufsz - n, "%s%s%s ", col, tok, rst);
+    }
+    snprintf(buf + n, bufsz - n, "%s$ ", cwd);
+    return strnlen(buf, bufsz);
+}
+
+void prompt_print(void) {
+    char buf[PATH_MAX + 64];
+    prompt_build(buf, sizeof(buf));
+    fputs(buf, stdout);
     fflush(stdout);
 }
